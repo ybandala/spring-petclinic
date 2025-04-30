@@ -1,0 +1,98 @@
+name: Build and Deploy
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: petclinic
+      IMAGE_TAG: ${{ github.sha }}
+      ARTIFACTORY_URL: petclinicmac.jfrog.io
+      DOCKER_REPO: petclinic-docker-remote
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Setup JFrog CLI
+      uses: jfrog/setup-jfrog-cli@v3
+      with:
+        version: latest
+      env:
+        JF_URL: ${{ secrets.JF_URL }}
+        JF_ACCESS_TOKEN: ${{ secrets.JF_ACCESS_TOKEN }}
+
+    - name: Build Docker Image
+      run: |
+        # Build Docker image
+        docker build -t "${IMAGE_NAME}:${IMAGE_TAG}" .
+        
+        # Tag for Artifactory
+        docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${ARTIFACTORY_URL}/${DOCKER_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
+        docker tag "${IMAGE_NAME}:${IMAGE_TAG}" "${ARTIFACTORY_URL}/${DOCKER_REPO}/${IMAGE_NAME}:latest"
+
+    - name: Login to Artifactory
+      run: |
+        echo "${{ secrets.ARTIFACTORY_PASSWORD }}" | docker login ${ARTIFACTORY_URL} -u${{ secrets.ARTIFACTORY_USERNAME }} --password-stdin
+
+    - name: Push Image to Artifactory
+      run: |
+        docker push "${ARTIFACTORY_URL}/${DOCKER_REPO}/${IMAGE_NAME}:${IMAGE_TAG}"
+        docker push "${ARTIFACTORY_URL}/${DOCKER_REPO}/${IMAGE_NAME}:latest"
+
+    - name: Test
+      run: ./mvnw test
+    
+    # - name: Build Docker Image
+    #   run: | 
+    #     docker build -t ybandala/petclinic:${{ github.sha }} .
+    #     docker tag ybandala/petclinic:${{ github.sha }} ybandala/petclinic:latest
+
+    - name: Test
+      run: ./mvnw test
+
+    # - name: Login to dockerhub
+    #   run: echo "${{ secrets.DOCKERHUB_PASSWORD }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+    
+    # - name: Push Image to Docker Hub
+    #   run: | 
+    #     docker push ybandala/petclinic:${{ github.sha }}
+    #     docker push ybandala/petclinic:latest
+    
+    # - name: Install kubectl
+    #   run: |
+    #     brew install kubectl
+
+    # - name: Set Minikube context
+    #   run: kubectl config use-context minikube
+
+    # - name: Deploy to Minikube
+    #   run: |
+    #     sed -i '' 's|image: .*|image: your-dockerhub-username/petclinic:'${{ github.sha }}'|' k8s/base/deployment.yaml
+
+    #     # Apply the Kubernetes manifests
+    #     kubectl apply -f k8s/base/
+
+    #     # Wait for deployment to complete
+    #     kubectl rollout status deployment/petclinic -n petclinic-dev --timeout=180s
+    # - name: Deploy to Minikube
+    #   run: |
+    #     # Update image path in deployment yaml
+    #     sed -i '' 's|image: .*|image: ${{ secrets.ARTIFACTORY_URL }}/docker-local/petclinic:'${{ github.sha }}'|' k8s/base/deployment.yaml
+    
+    #     # Configure kubectl to pull from Artifactory
+    #     kubectl create secret docker-registry artifactory-secret \
+    #       --docker-server=${{ secrets.ARTIFACTORY_URL }} \
+    #       --docker-username=${{ secrets.ARTIFACTORY_USERNAME }} \
+    #       --docker-password=${{ secrets.ARTIFACTORY_PASSWORD }}
+    
+    #     # Apply the secret to the namespace
+    #     kubectl patch serviceaccount default -p '{"imagePullSecrets": [{"name": "artifactory-secret"}]}'
+    
+    #     # Apply deployment
+    #     kubectl apply -f k8s/base/
+    #     kubectl rollout status deployment/petclinic --timeout=180s
+  
